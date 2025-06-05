@@ -1,10 +1,72 @@
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QTextEdit, QColorDialog,
-    QSystemTrayIcon, QMenu, QAction, QStyle
+    QApplication, QWidget, QTextEdit,
+    QSystemTrayIcon, QMenu, QAction, QStyle, QDialog,
+    QComboBox, QDialogButtonBox, QFormLayout, QKeySequenceEdit, QShortcut
 )
-from PyQt5.QtCore import Qt, QRectF, QPoint
+from PyQt5.QtCore import Qt, QRectF, QKeySequence
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QIcon
+
+PRESETS = {
+    "简约风": {
+        "bg": QColor(245, 245, 245, 200),
+        "border": QColor(200, 200, 200, 220),
+        "text": QColor(0, 0, 0),
+        "font": ("Arial", 16),
+    },
+    "科技风": {
+        "bg": QColor(30, 30, 30, 220),
+        "border": QColor(0, 255, 255, 180),
+        "text": QColor(0, 255, 255),
+        "font": ("Consolas", 16),
+    },
+    "暖色风": {
+        "bg": QColor(255, 228, 196, 200),
+        "border": QColor(255, 140, 0, 220),
+        "text": QColor(90, 50, 0),
+        "font": ("Verdana", 16),
+    },
+    "海洋风": {
+        "bg": QColor(173, 216, 230, 200),
+        "border": QColor(70, 130, 180, 220),
+        "text": QColor(0, 0, 80),
+        "font": ("Tahoma", 16),
+    },
+    "复古风": {
+        "bg": QColor(250, 235, 215, 200),
+        "border": QColor(139, 69, 19, 220),
+        "text": QColor(84, 47, 0),
+        "font": ("Times New Roman", 16),
+    },
+}
+
 import sys
+
+class SettingsDialog(QDialog):
+    def __init__(self, current_hotkey, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("设置")
+
+        layout = QFormLayout()
+
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(list(PRESETS.keys()))
+        layout.addRow("风格预设:", self.preset_combo)
+
+        self.hotkey_edit = QKeySequenceEdit(QKeySequence(current_hotkey))
+        layout.addRow("显示/隐藏快捷键:", self.hotkey_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+        self.setLayout(layout)
+
+    def get_settings(self):
+        return (
+            self.preset_combo.currentText(),
+            self.hotkey_edit.keySequence().toString(),
+        )
 
 class FloatingReminder(QWidget):
     def __init__(self):
@@ -19,20 +81,18 @@ class FloatingReminder(QWidget):
 
         self.bg_color = QColor(144, 238, 144, 200)
         self.border_color = QColor(0, 128, 0, 220)
+        self.text_color = QColor(0, 0, 0)
+        self.hotkey = "Ctrl+Shift+H"
 
         self.resize(180, 60)
         self.setMinimumSize(150, 40)
 
+        self.font_family = "Arial"
+        self.font_size = 16
+
         self.text = QTextEdit(self)
         self.text.setText("小仓看着你哦！")
-        self.text.setStyleSheet("""
-            QTextEdit {
-                background-color: transparent;
-                border: none;
-                color: black;
-            }
-        """)
-        self.text.setFont(QFont("Arial", 16))
+        self.apply_preset("简约风")
         self.text.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.text.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.text.setFrameStyle(0)
@@ -46,11 +106,10 @@ class FloatingReminder(QWidget):
 
         self.text.viewport().installEventFilter(self)
         self.init_tray()
+        self.init_shortcut()
 
     def init_tray(self):
-        # 使用系统默认图标，避免打包后找不到图标文件
-        default_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
-        self.tray = QSystemTrayIcon(default_icon, self)
+        self.tray = QSystemTrayIcon(QIcon("hamster.ico"), self)
         self.tray.setToolTip("专注提醒")
 
         menu = QMenu()
@@ -63,6 +122,10 @@ class FloatingReminder(QWidget):
         hide_action.triggered.connect(self.hide)
         menu.addAction(hide_action)
 
+        settings_action = QAction("设置", self)
+        settings_action.triggered.connect(self.open_settings)
+        menu.addAction(settings_action)
+
         exit_action = QAction("退出", self)
         exit_action.triggered.connect(QApplication.instance().quit)
         menu.addAction(exit_action)
@@ -71,8 +134,21 @@ class FloatingReminder(QWidget):
         self.tray.activated.connect(self.toggle_visibility)
         self.tray.show()
 
+    def init_shortcut(self):
+        self.shortcut = QShortcut(QKeySequence(self.hotkey), self)
+        self.shortcut.activated.connect(lambda: self.toggle_visibility(None))
+
+    def open_settings(self):
+        dialog = SettingsDialog(self.hotkey, self)
+        if dialog.exec_():
+            preset, hotkey = dialog.get_settings()
+            self.apply_preset(preset)
+            if hotkey:
+                self.hotkey = hotkey
+                self.shortcut.setKey(QKeySequence(self.hotkey))
+
     def toggle_visibility(self, reason):
-        if reason == QSystemTrayIcon.Trigger:
+        if reason is None or reason == QSystemTrayIcon.Trigger:
             self.setVisible(not self.isVisible())
 
     def paintEvent(self, event):
@@ -94,10 +170,7 @@ class FloatingReminder(QWidget):
                 self.dragging = True
                 self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
         elif event.button() == Qt.RightButton:
-            color = QColorDialog.getColor(self.bg_color, self)
-            if color.isValid():
-                self.bg_color = QColor(color.red(), color.green(), color.blue(), 200)
-                self.update()
+            self.open_settings()
 
     def mouseMoveEvent(self, event):
         if self.resizing:
@@ -123,10 +196,8 @@ class FloatingReminder(QWidget):
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y() / 120
-        font = self.text.font()
-        size = max(8, min(48, font.pointSize() + delta))
-        font.setPointSize(int(size))
-        self.text.setFont(font)
+        self.font_size = max(8, min(48, self.font_size + delta))
+        self.update_text_style()
 
     def is_on_corner(self, pos):
         return pos.x() >= self.width() - self.resize_margin and pos.y() >= self.height() - self.resize_margin
@@ -142,6 +213,23 @@ class FloatingReminder(QWidget):
     def focusOutEvent(self, event):
         self.text.setReadOnly(True)
         super().focusOutEvent(event)
+
+    def apply_preset(self, name):
+        preset = PRESETS.get(name)
+        if not preset:
+            return
+        self.bg_color = preset["bg"]
+        self.border_color = preset["border"]
+        self.text_color = preset["text"]
+        self.font_family, self.font_size = preset["font"]
+        self.update_text_style()
+        self.update()
+
+    def update_text_style(self):
+        self.text.setStyleSheet(
+            f"QTextEdit {{background-color: transparent; border: none; color: {self.text_color.name()};}}"
+        )
+        self.text.setFont(QFont(self.font_family, int(self.font_size)))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

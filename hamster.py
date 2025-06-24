@@ -37,6 +37,12 @@ PRESETS = {
         "text": QColor(84, 47, 0),
         "font": ("Times New Roman", 16),
     },
+    "高端风": {
+        "bg": QColor(0, 0, 0, 220),
+        "border": QColor(212, 175, 55, 220),
+        "text": QColor(212, 175, 55),
+        "font": ("Helvetica", 16),
+    },
 }
 
 import sys
